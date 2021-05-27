@@ -313,8 +313,8 @@ spec:
   template:
     metadata:
       annotations:
-        prometheus.io/path: /actuator/prometheus
-        prometheus.io/port: 8080
+        prometheus.io/path: "/actuator/prometheus"
+        prometheus.io/port: "8080"
         prometheus.io/scrape: "true"
       labels:
         app.kubernetes.io/name: api-rate-limiter
@@ -778,59 +778,3 @@ spec:
   namespaceSelector:
     matchNames:
     - api
----
-# Source: api-rate-limiter/templates/api-rate-limiter/service-monitor.yaml
-apiVersion: monitoring.coreos.com/v1
-kind: ServiceMonitor
-metadata:
-  labels:
-    helm.sh/chart: api-rate-limiter-0.1.0
-    app.kubernetes.io/name: api-rate-limiter
-    app.kubernetes.io/instance: release
-    app.kubernetes.io/version: "1.0.0"
-    app.kubernetes.io/managed-by: Helm
-  name: api-rate-limiter
-  namespace: api
-spec:
-  endpoints:
-  - interval: 30s
-    port: http
-  namespaceSelector:
-    matchNames:
-    - api
-  selector:
-    matchLabels:
-    helm.sh/chart: api-rate-limiter-0.1.0
-    app.kubernetes.io/name: api-rate-limiter
-    app.kubernetes.io/instance: release
-    app.kubernetes.io/version: "1.0.0"
-    app.kubernetes.io/managed-by: Helm
-    app: apiRateLimiter
----
-# Source: api-rate-limiter/templates/protected-api/service-monitor.yaml
-apiVersion: monitoring.coreos.com/v1
-kind: ServiceMonitor
-metadata:
-  labels:
-    helm.sh/chart: api-rate-limiter-0.1.0
-    app.kubernetes.io/name: api-rate-limiter
-    app.kubernetes.io/instance: release
-    app.kubernetes.io/version: "1.0.0"
-    app.kubernetes.io/managed-by: Helm
-  name: protected-api
-  namespace: api
-spec:
-  endpoints:
-  - interval: 30s
-    port: http
-  namespaceSelector:
-    matchNames:
-    - api
-  selector:
-    matchLabels:
-    helm.sh/chart: api-rate-limiter-0.1.0
-    app.kubernetes.io/name: api-rate-limiter
-    app.kubernetes.io/instance: release
-    app.kubernetes.io/version: "1.0.0"
-    app.kubernetes.io/managed-by: Helm
-    app: protectedApi

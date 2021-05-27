@@ -3,7 +3,7 @@ apiRateLimiter:
   replicaCount: 1
   namespace: api
   image:
-    repository: amusoke/irembo-apiRateLimiter
+    repository: amusoke/irembo-api-rate-limiter
     tag: latest
   service:
     port: 8080
@@ -27,8 +27,8 @@ apiRateLimiter:
     value: "/limited"
   
   podAnnotations:
-    prometheus.io/path: /actuator/prometheus
-    prometheus.io/port: 8080
+    prometheus.io/path: "/actuator/prometheus"
+    prometheus.io/port: "8080"
     prometheus.io/scrape: 'true'
 
 protectedApi:
@@ -62,4 +62,4 @@ redis:
     persistence:
       storageClass:
       size: 
-  password: '12345678'
+  usePassword: false # test only
