@@ -1,0 +1,73 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api-rate-limiter
+  namespace: {{ .Values.apiRateLimiter.namespace }}
+  labels:
+    {{- include "apiRateLimiter.labels" . | nindent 4 }}
+  {{- with .Values.apiRateLimiter.labels }}
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+{{- if not .Values.apiRateLimiter.autoscaling.enabled }}
+  replicas: {{ .Values.apiRateLimiter.replicaCount }}
+{{- end }}
+  selector:
+    matchLabels:
+      {{- include "apiRateLimiter.selectorLabels" . | nindent 6 }}
+    {{- with .Values.apiRateLimiter.labels }}
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
+  template:
+    metadata:
+    {{- with .Values.apiRateLimiter.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+    {{- end }}
+      labels:
+        {{- include "apiRateLimiter.selectorLabels" . | nindent 8 }}
+    {{- with .Values.apiRateLimiter.labels }}
+        {{- toYaml . | nindent 8 }}
+    {{- end }}
+    spec:
+      {{- with .Values.apiRateLimiter.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName:  {{ .Values.apiRateLimiter.serviceAccount.name }}
+      securityContext:
+        {{- toYaml .Values.apiRateLimiter.podSecurityContext | nindent 8 }}
+      containers:
+        - name: {{ .Chart.Name }}
+          {{- with .Values.apiRateLimiter.env }}
+          env:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          image: "{{ .Values.apiRateLimiter.image.repository }}:{{ .Values.apiRateLimiter.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.apiRateLimiter.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.apiRateLimiter.service.port }}
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+          resources:
+            {{- toYaml .Values.apiRateLimiter.resources | nindent 12 }}
+      {{- with .Values.apiRateLimiter.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.apiRateLimiter.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.apiRateLimiter.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

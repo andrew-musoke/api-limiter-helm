@@ -1,0 +1,20 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  labels:
+    {{- include "apiRateLimiter.labels" . | nindent 4 }}
+  name: protected-api
+  namespace: api
+spec:
+  endpoints:
+  - interval: 30s
+    port: http
+  namespaceSelector:
+    matchNames:
+    - {{ .Values.protectedApi.namespace }}
+  selector:
+    matchLabels:
+      {{- include "apiRateLimiter.labels" . | nindent 4 }}
+    {{- with .Values.protectedApi.labels }}
+      {{- toYaml . | nindent 4 }}
+    {{- end }}

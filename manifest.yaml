@@ -1,0 +1,836 @@
+---
+# Source: api-rate-limiter/templates/api-rate-limiter/serviceaccount.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: api-rate-limiter
+  labels:
+    helm.sh/chart: api-rate-limiter-0.1.0
+    app.kubernetes.io/name: api-rate-limiter
+    app.kubernetes.io/instance: release
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: Helm
+    app: apiRateLimiter
+---
+# Source: api-rate-limiter/templates/protected-api/serviceaccount.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: protected-api
+  labels:
+    helm.sh/chart: api-rate-limiter-0.1.0
+    app.kubernetes.io/name: api-rate-limiter
+    app.kubernetes.io/instance: release
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: Helm
+    app: protectedApi
+---
+# Source: api-rate-limiter/charts/redis/templates/secret.yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: release-redis
+  namespace: api
+  labels:
+    app: redis
+    chart: redis-10.7.11
+    release: "release"
+    heritage: "Helm"
+type: Opaque
+data:
+  redis-password: "MTIzNDU2Nzg="
+---
+# Source: api-rate-limiter/charts/redis/templates/configmap.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-redis
+  namespace: api
+  labels:
+    app: redis
+    chart: redis-10.7.11
+    heritage: Helm
+    release: release
+data:
+  redis.conf: |-
+    # User-supplied configuration:
+    # Enable AOF https://redis.io/topics/persistence#append-only-file
+    appendonly yes
+    # Disable RDB persistence, AOF persistence already enabled.
+    save ""
+  master.conf: |-
+    dir /data
+    rename-command FLUSHDB ""
+    rename-command FLUSHALL ""
+  replica.conf: |-
+    dir /data
+    slave-read-only yes
+    rename-command FLUSHDB ""
+    rename-command FLUSHALL ""
+---
+# Source: api-rate-limiter/charts/redis/templates/health-configmap.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: release-redis-health
+  namespace: api
+  labels:
+    app: redis
+    chart: redis-10.7.11
+    heritage: Helm
+    release: release
+data:
+  ping_readiness_local.sh: |-
+    #!/bin/bash
+    no_auth_warning=$([[ "$(redis-cli --version)" =~ (redis-cli 5.*) ]] && echo --no-auth-warning)
+    response=$(
+      timeout -s 3 $1 \
+      redis-cli \
+        -a $REDIS_PASSWORD $no_auth_warning \
+        -h localhost \
+        -p $REDIS_PORT \
+        ping
+    )
+    if [ "$response" != "PONG" ]; then
+      echo "$response"
+      exit 1
+    fi
+  ping_liveness_local.sh: |-
+    #!/bin/bash
+    no_auth_warning=$([[ "$(redis-cli --version)" =~ (redis-cli 5.*) ]] && echo --no-auth-warning)
+    response=$(
+      timeout -s 3 $1 \
+      redis-cli \
+        -a $REDIS_PASSWORD $no_auth_warning \
+        -h localhost \
+        -p $REDIS_PORT \
+        ping
+    )
+    if [ "$response" != "PONG" ] && [ "$response" != "LOADING Redis is loading the dataset in memory" ]; then
+      echo "$response"
+      exit 1
+    fi
+  ping_readiness_master.sh: |-
+    #!/bin/bash
+    no_auth_warning=$([[ "$(redis-cli --version)" =~ (redis-cli 5.*) ]] && echo --no-auth-warning)
+     response=$(
+      timeout -s 3 $1 \
+      redis-cli \
+        -a $REDIS_MASTER_PASSWORD $no_auth_warning \
+        -h $REDIS_MASTER_HOST \
+        -p $REDIS_MASTER_PORT_NUMBER \
+        ping
+    )
+    if [ "$response" != "PONG" ]; then
+      echo "$response"
+      exit 1
+    fi
+  ping_liveness_master.sh: |-
+    #!/bin/bash
+    no_auth_warning=$([[ "$(redis-cli --version)" =~ (redis-cli 5.*) ]] && echo --no-auth-warning)
+    response=$(
+      timeout -s 3 $1 \
+      redis-cli \
+        -a $REDIS_MASTER_PASSWORD $no_auth_warning \
+        -h $REDIS_MASTER_HOST \
+        -p $REDIS_MASTER_PORT_NUMBER \
+        ping
+    )
+    if [ "$response" != "PONG" ] && [ "$response" != "LOADING Redis is loading the dataset in memory" ]; then
+      echo "$response"
+      exit 1
+    fi
+  ping_readiness_local_and_master.sh: |-
+    script_dir="$(dirname "$0")"
+    exit_status=0
+    "$script_dir/ping_readiness_local.sh" $1 || exit_status=$?
+    "$script_dir/ping_readiness_master.sh" $1 || exit_status=$?
+    exit $exit_status
+  ping_liveness_local_and_master.sh: |-
+    script_dir="$(dirname "$0")"
+    exit_status=0
+    "$script_dir/ping_liveness_local.sh" $1 || exit_status=$?
+    "$script_dir/ping_liveness_master.sh" $1 || exit_status=$?
+    exit $exit_status
+---
+# Source: api-rate-limiter/charts/redis/templates/headless-svc.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-redis-headless
+  namespace: api
+  labels:
+    app: redis
+    chart: redis-10.7.11
+    release: release
+    heritage: Helm
+spec:
+  type: ClusterIP
+  clusterIP: None
+  ports:
+    - name: redis
+      port: 6379
+      targetPort: redis
+  selector:
+    app: redis
+    release: release
+---
+# Source: api-rate-limiter/charts/redis/templates/metrics-svc.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-redis-metrics
+  namespace: api
+  labels:
+    app: redis
+    chart: redis-10.7.11
+    release: release
+    heritage: Helm
+    app.kubernetes.io/component: "metrics"
+spec:
+  type: ClusterIP
+  
+  ports:
+    - name: metrics
+      port: 9121
+      targetPort: metrics
+  selector:
+    app: redis
+    release: release
+---
+# Source: api-rate-limiter/charts/redis/templates/redis-master-svc.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-redis-master
+  namespace: api
+  labels:
+    app: redis
+    chart: redis-10.7.11
+    release: release
+    heritage: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - name: redis
+      port: 6379
+      targetPort: redis
+  selector:
+    app: redis
+    release: release
+    role: master
+---
+# Source: api-rate-limiter/charts/redis/templates/redis-slave-svc.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: release-redis-slave
+  namespace: api
+  labels:
+    app: redis
+    chart: redis-10.7.11
+    release: release
+    heritage: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - name: redis
+      port: 6379
+      targetPort: redis
+  selector:
+    app: redis
+    release: release
+    role: slave
+---
+# Source: api-rate-limiter/templates/api-rate-limiter/service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: api-rate-limiter
+  namespace: api
+  labels:
+    helm.sh/chart: api-rate-limiter-0.1.0
+    app.kubernetes.io/name: api-rate-limiter
+    app.kubernetes.io/instance: release
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8080
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: api-rate-limiter
+    app.kubernetes.io/instance: release
+    app: apiRateLimiter
+---
+# Source: api-rate-limiter/templates/protected-api/service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: protected-api
+  namespace: api
+  labels:
+    helm.sh/chart: api-rate-limiter-0.1.0
+    app.kubernetes.io/name: api-rate-limiter
+    app.kubernetes.io/instance: release
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8081
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: api-rate-limiter
+    app.kubernetes.io/instance: release
+    app: protectedApi
+---
+# Source: api-rate-limiter/templates/api-rate-limiter/deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api-rate-limiter
+  namespace: api
+  labels:
+    helm.sh/chart: api-rate-limiter-0.1.0
+    app.kubernetes.io/name: api-rate-limiter
+    app.kubernetes.io/instance: release
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: Helm
+    app: apiRateLimiter
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: api-rate-limiter
+      app.kubernetes.io/instance: release
+      app: apiRateLimiter
+  template:
+    metadata:
+      annotations:
+        prometheus.io/path: /actuator/prometheus
+        prometheus.io/port: 8080
+        prometheus.io/scrape: "true"
+      labels:
+        app.kubernetes.io/name: api-rate-limiter
+        app.kubernetes.io/instance: release
+        app: apiRateLimiter
+    spec:
+      serviceAccountName:  api-rate-limiter
+      securityContext:
+        {}
+      containers:
+        - name: api-rate-limiter
+          env:
+            - name: SPRING_REDIS_HOST
+              value: api-redis-master
+            - name: RATE_LIMITED_URI
+              value: http://protected-api:8081
+            - name: RATE_LIMITED_PATH
+              value: /limited
+          image: "amusoke/irembo-apiRateLimiter:latest"
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+          resources:
+            limits:
+              cpu: 100m
+              memory: 128Mi
+            requests:
+              cpu: 100m
+              memory: 128Mi
+---
+# Source: api-rate-limiter/templates/protected-api/deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: protected-api
+  namespace: api
+  labels:
+    helm.sh/chart: api-rate-limiter-0.1.0
+    app.kubernetes.io/name: api-rate-limiter
+    app.kubernetes.io/instance: release
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: Helm
+    app: protectedApi
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: api-rate-limiter
+      app.kubernetes.io/instance: release
+      app: protectedApi
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: api-rate-limiter
+        app.kubernetes.io/instance: release
+        app: protectedApi
+    spec:
+      serviceAccountName: protected-api
+      securityContext:
+        {}
+      containers:
+        - name: api-rate-limiter
+          image: "eexit/mirror-http-server:latest"
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8081
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+          resources:
+            limits:
+              cpu: 100m
+              memory: 128Mi
+            requests:
+              cpu: 100m
+              memory: 128Mi
+---
+# Source: api-rate-limiter/charts/redis/templates/redis-master-statefulset.yaml
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: release-redis-master
+  namespace: api
+  labels:
+    app: redis
+    chart: redis-10.7.11
+    release: release
+    heritage: Helm
+spec:
+  selector:
+    matchLabels:
+      app: redis
+      release: release
+      role: master
+  serviceName: release-redis-headless
+  template:
+    metadata:
+      labels:
+        app: redis
+        chart: redis-10.7.11
+        release: release
+        role: master
+      annotations:
+        checksum/health: f925171b39930aa5b2dbba260148d48487049fde42d0c18741f5650b36372157
+        checksum/configmap: 0d2e341d4f318e982a3aa5329522bebcda30f2095f15023e4d4ca0482527e750
+        checksum/secret: 40c9bf48c8e3b8761980d429e21461e122fc524bda9c24a6b3fdf4087c68e89c
+        prometheus.io/port: "9121"
+        prometheus.io/scrape: "true"
+    spec:
+      
+      securityContext:
+        fsGroup: 1001
+      serviceAccountName: default
+      containers:
+        - name: redis
+          image: docker.io/bitnami/redis:6.0.5-debian-10-r2
+          imagePullPolicy: "IfNotPresent"
+          securityContext:
+            runAsUser: 1001
+          command:
+            - /bin/bash
+            - -c
+            - |
+              if [[ -n $REDIS_PASSWORD_FILE ]]; then
+                password_aux=`cat ${REDIS_PASSWORD_FILE}`
+                export REDIS_PASSWORD=$password_aux
+              fi
+              if [[ ! -f /opt/bitnami/redis/etc/master.conf ]];then
+                cp /opt/bitnami/redis/mounted-etc/master.conf /opt/bitnami/redis/etc/master.conf
+              fi
+              if [[ ! -f /opt/bitnami/redis/etc/redis.conf ]];then
+                cp /opt/bitnami/redis/mounted-etc/redis.conf /opt/bitnami/redis/etc/redis.conf
+              fi
+              ARGS=("--port" "${REDIS_PORT}")
+              ARGS+=("--requirepass" "${REDIS_PASSWORD}")
+              ARGS+=("--masterauth" "${REDIS_PASSWORD}")
+              ARGS+=("--include" "/opt/bitnami/redis/etc/redis.conf")
+              ARGS+=("--include" "/opt/bitnami/redis/etc/master.conf")
+              /run.sh ${ARGS[@]}
+          env:
+            - name: REDIS_REPLICATION_MODE
+              value: master
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: release-redis
+                  key: redis-password
+            - name: REDIS_TLS_ENABLED
+              value: "no"
+            - name: REDIS_PORT
+              value: "6379"
+          ports:
+            - name: redis
+              containerPort: 6379
+          livenessProbe:
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 5
+            exec:
+              command:
+                - sh
+                - -c
+                - /health/ping_liveness_local.sh 5
+          readinessProbe:
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 1
+            successThreshold: 1
+            failureThreshold: 5
+            exec:
+              command:
+                - sh
+                - -c
+                - /health/ping_readiness_local.sh 5
+          resources:
+            null
+          volumeMounts:
+            - name: health
+              mountPath: /health
+            - name: redis-data
+              mountPath: /data
+              subPath: 
+            - name: config
+              mountPath: /opt/bitnami/redis/mounted-etc
+            - name: redis-tmp-conf
+              mountPath: /opt/bitnami/redis/etc/
+        - name: metrics
+          image: docker.io/bitnami/redis-exporter:1.6.1-debian-10-r28
+          imagePullPolicy: "IfNotPresent"
+          command:
+            - /bin/bash
+            - -c
+            - |
+              if [[ -f '/secrets/redis-password' ]]; then
+              export REDIS_PASSWORD=$(cat /secrets/redis-password)
+              fi
+              redis_exporter
+          env:
+            - name: REDIS_ALIAS
+              value: release-redis
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: release-redis
+                  key: redis-password
+          volumeMounts:
+          ports:
+            - name: metrics
+              containerPort: 9121
+          resources:
+            null
+      volumes:
+        - name: health
+          configMap:
+            name: release-redis-health
+            defaultMode: 0755
+        - name: config
+          configMap:
+            name: release-redis
+        - name: redis-tmp-conf
+          emptyDir: {}
+  volumeClaimTemplates:
+    - metadata:
+        name: redis-data
+        labels:
+          app: redis
+          release: release
+          heritage: Helm
+          component: master
+      spec:
+        accessModes:
+          - "ReadWriteOnce"
+        resources:
+          requests:
+            storage: "8Gi"
+        
+        selector:
+  updateStrategy:
+    type: RollingUpdate
+---
+# Source: api-rate-limiter/charts/redis/templates/redis-slave-statefulset.yaml
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: release-redis-slave
+  namespace: api
+  labels:
+    app: redis
+    chart: redis-10.7.11
+    release: release
+    heritage: Helm
+spec:
+  replicas: 3
+  serviceName: release-redis-headless
+  selector:
+    matchLabels:
+      app: redis
+      release: release
+      role: slave
+  template:
+    metadata:
+      labels:
+        app: redis
+        release: release
+        chart: redis-10.7.11
+        role: slave
+      annotations:
+        checksum/health: f925171b39930aa5b2dbba260148d48487049fde42d0c18741f5650b36372157
+        checksum/configmap: 0d2e341d4f318e982a3aa5329522bebcda30f2095f15023e4d4ca0482527e750
+        checksum/secret: 40c9bf48c8e3b8761980d429e21461e122fc524bda9c24a6b3fdf4087c68e89c
+        prometheus.io/port: "9121"
+        prometheus.io/scrape: "true"
+    spec:
+      
+      securityContext:
+        fsGroup: 1001
+      serviceAccountName: default
+      containers:
+        - name: redis
+          image: docker.io/bitnami/redis:6.0.5-debian-10-r2
+          imagePullPolicy: "IfNotPresent"
+          securityContext:
+            runAsUser: 1001
+          command:
+            - /bin/bash
+            - -c
+            - |
+              if [[ -n $REDIS_PASSWORD_FILE ]]; then
+                password_aux=`cat ${REDIS_PASSWORD_FILE}`
+                export REDIS_PASSWORD=$password_aux
+              fi
+              if [[ -n $REDIS_MASTER_PASSWORD_FILE ]]; then
+                password_aux=`cat ${REDIS_MASTER_PASSWORD_FILE}`
+                export REDIS_MASTER_PASSWORD=$password_aux
+              fi
+              if [[ ! -f /opt/bitnami/redis/etc/replica.conf ]];then
+                cp /opt/bitnami/redis/mounted-etc/replica.conf /opt/bitnami/redis/etc/replica.conf
+              fi
+              if [[ ! -f /opt/bitnami/redis/etc/redis.conf ]];then
+                cp /opt/bitnami/redis/mounted-etc/redis.conf /opt/bitnami/redis/etc/redis.conf
+              fi
+              ARGS=("--port" "${REDIS_PORT}")
+              ARGS+=("--slaveof" "${REDIS_MASTER_HOST}" "${REDIS_MASTER_PORT_NUMBER}")
+              ARGS+=("--requirepass" "${REDIS_PASSWORD}")
+              ARGS+=("--masterauth" "${REDIS_MASTER_PASSWORD}")
+              ARGS+=("--include" "/opt/bitnami/redis/etc/redis.conf")
+              ARGS+=("--include" "/opt/bitnami/redis/etc/replica.conf")
+              /run.sh "${ARGS[@]}"
+          env:
+            - name: REDIS_REPLICATION_MODE
+              value: slave
+            - name: REDIS_MASTER_HOST
+              value: release-redis-master-0.release-redis-headless.api.svc.cluster.local
+            - name: REDIS_MASTER_PORT_NUMBER
+              value: "6379"
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: release-redis
+                  key: redis-password
+            - name: REDIS_MASTER_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: release-redis
+                  key: redis-password
+            - name: REDIS_TLS_ENABLED
+              value: "no"
+            - name: REDIS_PORT
+              value: "6379"
+          ports:
+            - name: redis
+              containerPort: 6379
+          livenessProbe:
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 5
+            exec:
+              command:
+                - sh
+                - -c
+                - /health/ping_liveness_local_and_master.sh 5
+          readinessProbe:
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 10
+            successThreshold: 1
+            failureThreshold: 5
+            exec:
+              command:
+                - sh
+                - -c
+                - /health/ping_readiness_local_and_master.sh 5
+          resources:
+            null
+          volumeMounts:
+            - name: health
+              mountPath: /health
+            - name: redis-data
+              mountPath: /data
+            - name: config
+              mountPath: /opt/bitnami/redis/mounted-etc
+            - name: redis-tmp-conf
+              mountPath: /opt/bitnami/redis/etc
+        - name: metrics
+          image: docker.io/bitnami/redis-exporter:1.6.1-debian-10-r28
+          imagePullPolicy: "IfNotPresent"
+          command:
+            - /bin/bash
+            - -c
+            - |
+              if [[ -f '/secrets/redis-password' ]]; then
+              export REDIS_PASSWORD=$(cat /secrets/redis-password)
+              fi
+              redis_exporter
+          env:
+            - name: REDIS_ALIAS
+              value: release-redis
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: release-redis
+                  key: redis-password
+          volumeMounts:
+          ports:
+            - name: metrics
+              containerPort: 9121
+          resources:
+            null
+      volumes:
+        - name: health
+          configMap:
+            name: release-redis-health
+            defaultMode: 0755
+        - name: config
+          configMap:
+            name: release-redis
+        - name: sentinel-tmp-conf
+          emptyDir: {}
+        - name: redis-tmp-conf
+          emptyDir: {}
+  volumeClaimTemplates:
+    - metadata:
+        name: redis-data
+        labels:
+          app: redis
+          release: release
+          heritage: Helm
+          component: slave
+      spec:
+        accessModes:
+          - "ReadWriteOnce"
+        resources:
+          requests:
+            storage: "8Gi"
+        
+        selector:
+  updateStrategy:
+    type: RollingUpdate
+---
+# Source: api-rate-limiter/charts/redis/templates/metrics-prometheus.yaml
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: release-redis
+  namespace: api
+  labels:
+    app: redis
+    chart: redis-10.7.11
+    release: release
+    heritage: Helm
+    prometheus: "kube-prometheus"
+spec:
+  endpoints:
+  - port: metrics
+  selector:
+    matchLabels:
+      app: redis
+      release: release
+      app.kubernetes.io/component: "metrics"
+  namespaceSelector:
+    matchNames:
+    - api
+---
+# Source: api-rate-limiter/templates/api-rate-limiter/service-monitor.yaml
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  labels:
+    helm.sh/chart: api-rate-limiter-0.1.0
+    app.kubernetes.io/name: api-rate-limiter
+    app.kubernetes.io/instance: release
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: Helm
+  name: api-rate-limiter
+  namespace: api
+spec:
+  endpoints:
+  - interval: 30s
+    port: http
+  namespaceSelector:
+    matchNames:
+    - api
+  selector:
+    matchLabels:
+    helm.sh/chart: api-rate-limiter-0.1.0
+    app.kubernetes.io/name: api-rate-limiter
+    app.kubernetes.io/instance: release
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: Helm
+    app: apiRateLimiter
+---
+# Source: api-rate-limiter/templates/protected-api/service-monitor.yaml
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  labels:
+    helm.sh/chart: api-rate-limiter-0.1.0
+    app.kubernetes.io/name: api-rate-limiter
+    app.kubernetes.io/instance: release
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: Helm
+  name: protected-api
+  namespace: api
+spec:
+  endpoints:
+  - interval: 30s
+    port: http
+  namespaceSelector:
+    matchNames:
+    - api
+  selector:
+    matchLabels:
+    helm.sh/chart: api-rate-limiter-0.1.0
+    app.kubernetes.io/name: api-rate-limiter
+    app.kubernetes.io/instance: release
+    app.kubernetes.io/version: "1.0.0"
+    app.kubernetes.io/managed-by: Helm
+    app: protectedApi

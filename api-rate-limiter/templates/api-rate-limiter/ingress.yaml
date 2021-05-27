@@ -1,0 +1,44 @@
+{{- if .Values.apiRateLimiter.ingress.enabled -}}
+{{- $fullName := include "apiRateLimiter.fullname" . -}}
+{{- $svcPort := .Values.apiRateLimiter.service.port -}}
+{{- if semverCompare ">=1.14-0" .Capabilities.KubeVersion.GitVersion -}}
+apiVersion: networking.k8s.io/v1beta1
+{{- else -}}
+apiVersion: extensions/v1beta1
+{{- end }}
+kind: Ingress
+metadata:
+  name: api-rate-limiter
+  labels:
+    {{- include "apiRateLimiter.labels" . | nindent 4 }}
+    {{- with .Values.apiRateLimiter.labels }}
+        {{- toYaml . | nindent 4 }}
+    {{- end }}
+  {{- with .Values.apiRateLimiter.ingress.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- if .Values.apiRateLimiter.ingress.tls }}
+  tls:
+    {{- range .Values.apiRateLimiter.ingress.tls }}
+    - hosts:
+        {{- range .hosts }}
+        - {{ . | quote }}
+        {{- end }}
+      secretName: {{ .secretName }}
+    {{- end }}
+  {{- end }}
+  rules:
+    {{- range .Values.apiRateLimiter.ingress.hosts }}
+    - host: {{ .host | quote }}
+      http:
+        paths:
+          {{- range .paths }}
+          - path: {{ . }}
+            backend:
+              serviceName: {{ $fullName }}
+              servicePort: {{ $svcPort }}
+          {{- end }}
+    {{- end }}
+  {{- end }}

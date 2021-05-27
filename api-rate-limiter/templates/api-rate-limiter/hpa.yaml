@@ -1,0 +1,32 @@
+{{- if .Values.apiRateLimiter.autoscaling.enabled }}
+apiVersion: autoscaling/v2beta1
+kind: HorizontalPodAutoscaler
+metadata:
+  name: api-rate-limiter
+  labels:
+    {{- include "apiRateLimiter.labels" . | nindent 4 }}
+    {{- with .Values.apiRateLimiter.labels }}
+        {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "apiRateLimiter.fullname" . }}
+    namespace: {{ .Values.apiRateLimiter.namespace }}
+  minReplicas: {{ .Values.apiRateLimiter.autoscaling.minReplicas }}
+  maxReplicas: {{ .Values.apiRateLimiter.autoscaling.maxReplicas }}
+  metrics:
+  {{- if .Values.apiRateLimiter.autoscaling.targetCPUUtilizationPercentage }}
+    - type: Resource
+      resource:
+        name: cpu
+        targetAverageUtilization: {{ .Values.apiRateLimiter.autoscaling.targetCPUUtilizationPercentage }}
+  {{- end }}
+  {{- if .Values.apiRateLimiter.autoscaling.targetMemoryUtilizationPercentage }}
+    - type: Resource
+      resource:
+        name: memory
+        targetAverageUtilization: {{ .Values.apiRateLimiter.autoscaling.targetMemoryUtilizationPercentage }}
+  {{- end }}
+{{- end }}

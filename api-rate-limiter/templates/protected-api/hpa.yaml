@@ -1,0 +1,32 @@
+{{- if .Values.protectedApi.autoscaling.enabled }}
+apiVersion: autoscaling/v2beta1
+kind: HorizontalPodAutoscaler
+metadata:
+  name: protected-api
+  labels:
+    {{- include "apiRateLimiter.labels" . | nindent 4 }}
+    {{- with .Values.protectedApi.labels }}
+        {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "apiRateLimiter.fullname" . }}
+    namespace: {{ .Values.protectedApi.namespace }}
+  minReplicas: {{ .Values.protectedApi.autoscaling.minReplicas }}
+  maxReplicas: {{ .Values.protectedApi.autoscaling.maxReplicas }}
+  metrics:
+  {{- if .Values.protectedApi.autoscaling.targetCPUUtilizationPercentage }}
+    - type: Resource
+      resource:
+        name: cpu
+        targetAverageUtilization: {{ .Values.protectedApi.autoscaling.targetCPUUtilizationPercentage }}
+  {{- end }}
+  {{- if .Values.protectedApi.autoscaling.targetMemoryUtilizationPercentage }}
+    - type: Resource
+      resource:
+        name: memory
+        targetAverageUtilization: {{ .Values.protectedApi.autoscaling.targetMemoryUtilizationPercentage }}
+  {{- end }}
+{{- end }}

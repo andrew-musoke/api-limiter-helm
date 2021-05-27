@@ -1,0 +1,65 @@
+apiRateLimiter:
+  enabled: true
+  replicaCount: 1
+  namespace: api
+  image:
+    repository: amusoke/irembo-apiRateLimiter
+    tag: latest
+  service:
+    port: 8080
+  resources: 
+    limits:
+      cpu: 100m
+      memory: 128Mi
+    requests:
+      cpu: 100m
+      memory: 128Mi
+  autoscaling:
+    enabled: false
+    minReplicas: 1
+    maxReplicas: 100
+  env:
+  - name: SPRING_REDIS_HOST
+    value: "api-redis-master"
+  - name: RATE_LIMITED_URI
+    value: "http://protected-api:8081"
+  - name: RATE_LIMITED_PATH
+    value: "/limited"
+  
+  podAnnotations:
+    prometheus.io/path: /actuator/prometheus
+    prometheus.io/port: 8080
+    prometheus.io/scrape: 'true'
+
+protectedApi:
+  enabled: true
+  replicaCount: 1
+  namespace: api
+  image:
+    repository: eexit/mirror-http-server
+    tag: latest
+  service:
+    port: 8081
+  resources: 
+    limits:
+      cpu: 100m
+      memory: 128Mi
+    requests:
+      cpu: 100m
+      memory: 128Mi
+
+redis: 
+  enabled: true
+  cluster:
+    slaveCount: 3
+  master:
+    ## Enable persistence using Persistent Volume Claims
+    persistence:
+      storageClass:
+      size: 
+  slave:
+    ## Enable persistence using Persistent Volume Claims
+    persistence:
+      storageClass:
+      size: 
+  password: '12345678'

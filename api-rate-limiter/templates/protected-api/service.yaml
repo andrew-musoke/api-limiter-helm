@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: protected-api
+  namespace: {{ .Values.protectedApi.namespace }}
+  labels:
+    {{- include "apiRateLimiter.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.protectedApi.service.type }}
+  ports:
+    - port: {{ .Values.protectedApi.service.port }}
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    {{- include "apiRateLimiter.selectorLabels" . | nindent 4 }}
+  {{- with .Values.protectedApi.labels }}
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
