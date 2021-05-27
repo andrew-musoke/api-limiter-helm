@@ -51,15 +51,15 @@ protectedApi:
 redis: 
   enabled: true
   cluster:
-    slaveCount: 3
+    slaveCount: 1
   master:
     ## Enable persistence using Persistent Volume Claims
     persistence:
-      storageClass:
-      size: 
+      storageClass: openebs-hostpath
+      size: 100Gi
   slave:
     ## Enable persistence using Persistent Volume Claims
     persistence:
-      storageClass:
-      size: 
+      storageClass: openebs-hostpath
+      size: 100Gi
   usePassword: false # test only
